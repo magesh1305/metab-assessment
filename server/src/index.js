@@ -6,6 +6,7 @@ import usersRouter from './routes/users.js';
 import productsRouter from './routes/products.js';
 import ordersRouter from './routes/orders.js';
 import meRouter from './routes/me.js';
+import { startErpWorker } from './services/erpWorker.js';
 
 const app = express();
 
@@ -25,5 +26,7 @@ app.use((err, req, res, next) => {
 });
 
 const port = process.env.PORT || 4000;
-app.listen(port, () => console.log(`API running on:${port}`));
-
+app.listen(port, () => {
+    console.log(`API running on http://localhost:${port}`);
+    startErpWorker();
+});
