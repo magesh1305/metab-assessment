@@ -1,0 +1,82 @@
+Table products {
+  id serial [pk]
+  sku varchar(32) [not null, unique]
+  name varchar(200) [not null]
+  unit_price numeric(12,2) [not null]
+  stock_on_hand integer [not null]
+  stock_reserved integer [not null, default: 0]
+}
+
+Table distributors {
+  id serial [pk]
+  name varchar(200) [not null]
+  credit_limit numeric(12,2) [not null]
+  tier varchar(10) [not null]
+}
+
+Table sales_managers {
+  id serial [pk]
+  name varchar(200) [not null]
+}
+
+Table orders {
+  id serial [pk]
+  distributor_id integer [not null]
+  status varchar(20) [not null]
+  subtotal numeric(12,2) [not null]
+  discount_pct numeric(5,2) [not null]
+  discount_amount numeric(12,2) [not null]
+  total numeric(12,2) [not null]
+  idempotency_key varchar(100) [unique]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table order_items {
+  id serial [pk]
+  order_id integer [not null]
+  product_id integer [not null]
+  quantity integer [not null]
+  unit_price numeric(12,2) [not null]
+  indexes {
+    (order_id, product_id) [unique]
+  }
+}
+
+Table order_events {
+  id serial [pk]
+  order_id integer [not null]
+  from_status varchar(20)
+  to_status varchar(20) [not null]
+  actor_type varchar(20) [not null]
+  actor_id integer
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table points_ledger {
+  id serial [pk]
+  distributor_id integer [not null]
+  order_id integer [not null]
+  entry_type varchar(10) [not null]
+  points integer [not null]
+  earned_at timestamptz [not null]
+  indexes {
+    (order_id, entry_type) [unique]
+  }
+}
+
+Table erp_outbox {
+  id serial [pk]
+  order_id integer [not null]
+  payload jsonb [not null]
+  status varchar(10) [not null, default: 'PENDING']
+  attempts integer [not null, default: 0]
+  next_attempt_at timestamptz [not null, default: `now()`]
+}
+
+Ref: orders.distributor_id > distributors.id
+Ref: order_items.order_id > orders.id
+Ref: order_items.product_id > products.id
+Ref: order_events.order_id > orders.id
+Ref: points_ledger.distributor_id > distributors.id
+Ref: points_ledger.order_id > orders.id
+Ref: erp_outbox.order_id > orders.id
