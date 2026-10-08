@@ -10,10 +10,10 @@ Order, stock and loyalty points app for a manufacturer and its distributors.
 ## How to run
 
 ```bash
-cp server/.env.example server/.env              # put your postgres password in this file
+cp server/.env.example server/.env           
 psql -U postgres -c "CREATE DATABASE orderflow;"
-npm run setup                                   # installs everything + creates tables + seed data
-npm start                                       # mock ERP on 4001, API on 4000, web app on 5173
+npm run setup                                 
+npm start                                      
 ```
 
 Then open http://localhost:5173 and pick a user from the dropdown at the top.
