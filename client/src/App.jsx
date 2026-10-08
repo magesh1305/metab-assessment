@@ -1,122 +1,107 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useEffect, useState } from 'react';
+import { api } from './api.js';
+import Catalogue from './components/Catalogue.jsx';
+import OrderList from './components/OrderList.jsx';
+import OrderDetail from './components/OrderDetail.jsx';
 
-function App() {
-  const [count, setCount] = useState(0)
+export default function App() {
+  const [users, setUsers] = useState(null);
+  const [user, setUser] = useState(null);
+  const [me, setMe] = useState(null);
+  const [view, setView] = useState('catalogue');
+  const [selectedOrderId, setSelectedOrderId] = useState(null);
+
+  useEffect(() => {
+    api(null, '/users').then(setUsers);
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    api(user, '/me').then(setMe);
+  }, [user]);
+
+  function refreshMe() {
+    api(user, '/me').then(setMe);
+  }
+
+  function switchUser(value) {
+    const [role, id] = value.split(':');
+    setUser({ role, id: Number(id) });
+    setMe(null);
+    setView(role === 'distributor' ? 'catalogue' : 'queue');
+  }
+
+  function openOrder(id) {
+    setSelectedOrderId(id);
+    setView('detail');
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className="app">
+      <header>
+        <h1>Distributor Orders</h1>
 
-      <div className="ticks"></div>
+        <select value={user ? `${user.role}:${user.id}` : ''} onChange={(e) => switchUser(e.target.value)}>
+          <option value="" disabled>Select user</option>
+          <optgroup label="Distributors">
+            {users?.distributors.map((d) => (
+              <option key={d.id} value={`distributor:${d.id}`}>{d.name}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Sales Manager">
+            {users?.managers.map((m) => (
+              <option key={m.id} value={`manager:${m.id}`}>{m.name}</option>
+            ))}
+          </optgroup>
+        </select>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+        {me?.role === 'distributor' && (
+          <span className="badge">
+            Points (last 90 days): <b>{me.points}</b> · Tier: <b>{me.tier}</b>
+          </span>
+        )}
+      </header>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {!user ? (
+        <p>Select a user to start.</p>
+      ) : (
+        <main key={`${user.role}:${user.id}`}>
+          <nav>
+            {user.role === 'distributor' ? (
+              <>
+                <button onClick={() => setView('catalogue')}>Catalogue</button>
+                <button onClick={() => setView('orders')}>My orders</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setView('queue')}>Approval queue</button>
+                <button onClick={() => setView('orders')}>All orders</button>
+                <button onClick={() => setView('catalogue')}>Catalogue</button>
+              </>
+            )}
+          </nav>
+
+          {view === 'catalogue' && (
+            <Catalogue
+              user={user}
+              onOrderPlaced={(order) => {
+                refreshMe();
+                openOrder(order.id);
+              }}
+            />
+          )}
+          {view === 'orders' && <OrderList user={user} onOpen={openOrder} />}
+          {view === 'queue' && <OrderList user={user} status="PendingApproval" onOpen={openOrder} />}
+          {view === 'detail' && (
+            <OrderDetail
+              user={user}
+              orderId={selectedOrderId}
+              onChanged={refreshMe}
+              onBack={() => setView('orders')}
+            />
+          )}
+        </main>
+      )}
+    </div>
+  );
 }
-
-export default App

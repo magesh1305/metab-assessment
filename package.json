@@ -1,0 +1,12 @@
+{
+  "name": "metab assessment",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm install --prefix server && npm install --prefix client && npm run db:reset --prefix server",
+    "start": "concurrently -n erp,api,web \"npm run erp --prefix server\" \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "test:concurrency": "npm run test:concurrency --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
