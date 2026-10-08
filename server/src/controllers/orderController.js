@@ -24,3 +24,17 @@ export async function getOrderById(req, res) {
     const order = await orderService.getOrder(req.user, id);
     res.json(order);
 }
+
+export async function updateStatus(req, res) {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+        throw httpError(400, 'Invalid order id');
+    }
+    const status = req.body?.status;
+    if (!status) {
+        throw httpError(400, 'status is required');
+    }
+    await orderService.transitionOrder(req.user, id, status);
+    const order = await orderService.getOrder(req.user, id);
+    res.json(order);
+}

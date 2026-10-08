@@ -1,7 +1,15 @@
 import pool from '../db.js';
 import { httpError } from '../utils/httpError.js';
 import { toCents, fromCents } from '../utils/money.js';
-import { TIER_DISCOUNT, recalculateTier, awardPoints } from './loyaltyService.js';
+import { TIER_DISCOUNT, recalculateTier, awardPoints, reversePoints } from './loyaltyService.js';
+
+const ROLE_FOR_STATUS = {
+    Confirmed: 'manager',
+    Rejected: 'manager',
+    Dispatched: 'manager',
+    Delivered: 'manager',
+    Cancelled: 'distributor',
+};
 
 export const TRANSITIONS = {
     Placed: ['Confirmed', 'PendingApproval', 'Cancelled'],
@@ -72,23 +80,16 @@ function normaliseItems(items) {
         .sort((a, b) => a.productId - b.productId);
 }
 
-async function findOrderIdByKey(key, distributorId) {
-    const { rows } = await pool.query(
-        'SELECT id, distributor_id FROM orders WHERE idempotency_key = $1',
-        [key]
-    );
-    if (rows.length === 0) return null;
-    if (rows[0].distributor_id !== distributorId) {
-        throw httpError(409, 'Idempotency key already used');
-    }
-    return rows[0].id;
+async function findOrderIdByKey(key) {
+    const { rows } = await pool.query('SELECT id FROM orders WHERE idempotency_key = $1', [key]);
+    return rows[0]?.id || null;
 }
 
 export async function placeOrder(distributorId, items, idempotencyKey) {
     const lines = normaliseItems(items);
 
     if (idempotencyKey) {
-        const existingId = await findOrderIdByKey(idempotencyKey, distributorId);
+        const existingId = await findOrderIdByKey(idempotencyKey);
         if (existingId) return { orderId: existingId, created: false };
     }
 
@@ -170,7 +171,7 @@ export async function placeOrder(distributorId, items, idempotencyKey) {
         await client.query('ROLLBACK');
 
         if (err.code === '23505' && err.constraint === 'orders_idempotency_key_key') {
-            const existingId = await findOrderIdByKey(idempotencyKey, distributorId);
+            const existingId = await findOrderIdByKey(idempotencyKey);
             return { orderId: existingId, created: false };
         }
         throw err;
@@ -237,4 +238,69 @@ export async function getOrder(user, orderId) {
     );
 
     return { ...order, items: items.rows, events: events.rows };
+}
+
+async function releaseStock(client, orderId) {
+    await client.query(
+        `UPDATE products p
+     SET stock_reserved = p.stock_reserved - oi.quantity
+     FROM order_items oi
+     WHERE oi.product_id = p.id AND oi.order_id = $1`,
+        [orderId]
+    );
+}
+
+async function deductStock(client, orderId) {
+    await client.query(
+        `UPDATE products p
+     SET stock_on_hand  = p.stock_on_hand  - oi.quantity,
+         stock_reserved = p.stock_reserved - oi.quantity
+     FROM order_items oi
+     WHERE oi.product_id = p.id AND oi.order_id = $1`,
+        [orderId]
+    );
+}
+
+export async function transitionOrder(user, orderId, toStatus) {
+    const allowedRole = ROLE_FOR_STATUS[toStatus];
+    if (!allowedRole) {
+        throw httpError(400, `Status ${toStatus} cannot be set manually`);
+    }
+    if (user.role !== allowedRole) {
+        throw httpError(403, `Only a ${allowedRole} can move an order to ${toStatus}`);
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const { rows } = await client.query('SELECT * FROM orders WHERE id = $1 FOR UPDATE', [orderId]);
+        const order = rows[0];
+        if (!order || (user.role === 'distributor' && order.distributor_id !== user.id)) {
+            throw httpError(404, 'Order not found');
+        }
+
+        const fromStatus = order.status;
+        await changeStatus(client, order, toStatus, { type: user.role, id: user.id });
+
+        if (toStatus === 'Confirmed') {
+            await awardPoints(client, order);
+        }
+        if (toStatus === 'Dispatched') {
+            await deductStock(client, order.id);
+        }
+        if (toStatus === 'Cancelled' || toStatus === 'Rejected') {
+            await releaseStock(client, order.id);
+            if (fromStatus === 'Confirmed') {
+                await reversePoints(client, order);
+            }
+        }
+
+        await client.query('COMMIT');
+    } catch (err) {
+        await client.query('ROLLBACK');
+        throw err;
+    } finally {
+        client.release();
+    }
 }

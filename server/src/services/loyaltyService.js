@@ -35,3 +35,20 @@ export async function awardPoints(client, order) {
     );
     return recalculateTier(client, order.distributor_id);
 }
+
+export async function reversePoints(client, order) {
+    const { rows } = await client.query(
+        `SELECT points, earned_at FROM points_ledger
+     WHERE order_id = $1 AND entry_type = 'AWARD'`,
+        [order.id]
+    );
+    if (rows.length === 0) return;
+
+    const { points, earned_at } = rows[0];
+    await client.query(
+        `INSERT INTO points_ledger (distributor_id, order_id, entry_type, points, earned_at)
+     VALUES ($1, $2, 'REVERSAL', $3, $4)`,
+        [order.distributor_id, order.id, -points, earned_at]
+    );
+    return recalculateTier(client, order.distributor_id);
+}
